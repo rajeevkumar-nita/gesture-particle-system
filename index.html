@@ -1,538 +1,14 @@
-<!-- <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S-Shape & Perfect Audio</title>
-    <style>
-        body { margin: 0; overflow: hidden; background-color: #050505; font-family: sans-serif; }
-        
-        /* Main 3D Canvas */
-        canvas.main-canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
-
-        /* Start Button */
-        #start-btn {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            padding: 15px 30px; background: #00ffcc; color: black; font-weight: bold;
-            border: none; border-radius: 30px; cursor: pointer; z-index: 50;
-            font-size: 18px; box-shadow: 0 0 20px rgba(0, 255, 204, 0.5);
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse { 0% { transform: translate(-50%, -50%) scale(1); } 50% { transform: translate(-50%, -50%) scale(1.1); } 100% { transform: translate(-50%, -50%) scale(1); } }
-
-        /* UI Container */
-        #ui {
-            position: absolute; bottom: 30px; left: 50%; 
-            transform: translateX(-50%);
-            z-index: 10;
-            pointer-events: none;
-            text-align: center;
-        }
-
-        /* Volume Indicator */
-        #volume-status {
-            position: absolute; top: 20px; right: 20px;
-            color: #00ffcc; font-size: 14px; border: 1px solid #00ffcc;
-            padding: 5px 10px; border-radius: 5px; opacity: 0.8; transition: opacity 0.3s;
-        }
-
-        /* Shape Previews */
-        #shape-previews {
-            display: flex;
-            gap: 15px;
-            pointer-events: auto;
-            background: rgba(0,0,0,0.3);
-            padding: 10px;
-            border-radius: 20px;
-            backdrop-filter: blur(5px);
-        }
-
-        .shape-preview-container {
-            width: 50px; height: 50px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 50%;
-            border: 2px solid transparent;
-            overflow: hidden;
-            display: flex; justify-content: center; align-items: center;
-            transition: all 0.3s ease; color: white; font-size: 10px;
-        }
-
-        .shape-preview-container.active {
-            border-color: #00ffcc;
-            transform: scale(1.2);
-            background: rgba(0, 255, 204, 0.1);
-            box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
-        }
-
-        /* Webcam */
-        #input_video {
-            display: block !important;
-            position: absolute; bottom: 20px; right: 20px;
-            width: 300px; height: auto;
-            border-radius: 12px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            z-index: 100;
-            transform: scaleX(-1);
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            opacity: 0.9;
-        }
-
-    </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-</head>
-<body>
-
-    <button id="start-btn">START MUSIC & MAGIC ✨</button>
-    <div id="volume-status">Volume: 40%</div>
-
-    <audio id="main-audio" loop src="background.mp3"></audio>
-    
-    <div id="ui">
-        <div id="shape-previews"></div>
-    </div>
-
-    <video id="input_video" width="1280" height="720" autoplay playsinline></video>
-
-<script>
-    // --- CONFIGURATION ---
-    const PARTICLE_COUNT = 15000;
-    const PARTICLE_SIZE = 0.08;
-    const MORPH_SPEED = 0.08;
-
-    // --- GLOBALS ---
-    let scene, camera, renderer, particles, geometry;
-    let targetPositions = []; 
-    let currentShapeIndex = 0;
-    
-    // UPDATED ORDER: Sphere -> S-Shape -> Heart -> Saturn
-    const shapeNames = ["Sphere", "S-Shape", "Heart", "Saturn", "Flower", "Torus Knot"];
-    
-    let shapes = []; 
-    let shapePreviews = []; 
-
-    // Interaction State
-    let isPinching = false;
-    let pinchCooldown = false;
-    let handDistance = 1;
-    let rotationTarget = { x: 0, y: 0 };
-    
-    // Audio State
-    let audioElement;
-    let isAudioPlaying = false;
-
-    // --- SHAPE GENERATORS ---
-    
-    // 1. Sphere
-    function getSphere(count) {
-        const arr = new Float32Array(count * 3);
-        for(let i=0; i<count; i++) {
-            const r = 4;
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.acos(2 * Math.random() - 1);
-            arr[i*3] = r * Math.sin(phi) * Math.cos(theta);
-            arr[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
-            arr[i*3+2] = r * Math.cos(phi);
-        }
-        return arr;
-    }
-
-    // 2. NEW 'S' SHAPE (Improved)
-    function getSShape(count) {
-        const arr = new Float32Array(count * 3);
-        for(let i=0; i<count; i++) {
-            // Map i to t from -PI to PI approx
-            const t = (i / count) * Math.PI * 2.2 - 1.1 * Math.PI;
-            
-            // Parametric S (Sine Wave)
-            const x = Math.sin(t) * 2.5; 
-            const y = -t * 1.5; // Height
-            const z = 0;
-
-            // Add thickness/volume so it's not a thin line
-            arr[i*3] = x + (Math.random()-0.5) * 0.5;
-            arr[i*3+1] = y + (Math.random()-0.5) * 0.5;
-            arr[i*3+2] = z + (Math.random()-0.5) * 0.5;
-        }
-        return arr;
-    }
-
-    // 3. Heart
-    function getHeart(count) {
-        const arr = new Float32Array(count * 3);
-        for(let i=0; i<count; i++) {
-            const t = Math.random() * Math.PI * 2;
-            const u = Math.random() * Math.PI;
-            let x = 16 * Math.pow(Math.sin(t), 3) * Math.sin(u);
-            let y = (13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t)) * Math.sin(u);
-            let z = 6 * Math.cos(u);
-            const scale = 0.3;
-            arr[i*3] = x * scale; arr[i*3+1] = y * scale; arr[i*3+2] = z * scale;
-        }
-        return arr;
-    }
-
-    // 4. Saturn
-    function getSaturn(count) {
-        const arr = new Float32Array(count * 3);
-        const ringStart = Math.floor(count * 0.7);
-        for(let i=0; i<ringStart; i++) {
-            const r = 2.5;
-            const theta = Math.random() * Math.PI * 2;
-            const phi = Math.acos(2 * Math.random() - 1);
-            arr[i*3] = r * Math.sin(phi) * Math.cos(theta);
-            arr[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
-            arr[i*3+2] = r * Math.cos(phi);
-        }
-        for(let i=ringStart; i<count; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const r = 3.5 + Math.random() * 2.5; 
-            arr[i*3] = r * Math.cos(angle);
-            arr[i*3+1] = (Math.random() - 0.5) * 0.1; 
-            arr[i*3+2] = r * Math.sin(angle);
-        }
-        return arr;
-    }
-
-    // 5. Flower
-    function getFlower(count) {
-        const arr = new Float32Array(count * 3);
-        for(let i=0; i<count; i++) {
-            const theta = Math.random() * Math.PI * 2;
-            const v = Math.random(); 
-            const k = 4; 
-            const r = 2 + Math.cos(k * theta) + v * 2; 
-            const y = (v - 0.5) * 4;
-            arr[i*3] = r * Math.cos(theta);
-            arr[i*3+1] = y + Math.sin(r)*0.5; 
-            arr[i*3+2] = r * Math.sin(theta);
-        }
-        return arr;
-    }
-
-    // 6. Torus Knot
-    function getTorusKnot(count) {
-        const arr = new Float32Array(count * 3);
-        for(let i=0; i<count; i++) {
-            const t = Math.random() * Math.PI * 2 * 3; 
-            const r = 0.5 + Math.random() * 0.5; 
-            const p = 2, q = 3;
-            const scale = 1.2;
-            const x = (2 + Math.cos(q * t)) * Math.cos(p * t);
-            const y = (2 + Math.cos(q * t)) * Math.sin(p * t);
-            const z = Math.sin(q * t);
-            arr[i*3] = x * scale + (Math.random()-0.5)*0.2;
-            arr[i*3+1] = y * scale + (Math.random()-0.5)*0.2;
-            arr[i*3+2] = z * scale + (Math.random()-0.5)*0.2;
-        }
-        return arr;
-    }
-
-    // --- AUDIO LOGIC ---
-    function initAudio() {
-        audioElement = document.getElementById('main-audio');
-        // Start playing
-        audioElement.play().then(() => {
-            isAudioPlaying = true;
-            document.getElementById('start-btn').style.display = 'none';
-        }).catch(err => {
-            console.log("Audio play failed:", err);
-            alert("Please interact with the document to play audio.");
-        });
-    }
-
-    function updateVolume() {
-        if (!isAudioPlaying || !audioElement) return;
-
-        // --- NEW VOLUME LOGIC ---
-        // Range Logic:
-        // Hand Distance: 0.5 (Close) -> 2.5 (Far)
-        // Desired Volume: 0.4 (Min) -> 1.0 (Max)
-        
-        // Normalize distance (0.0 to 1.0 approx)
-        let normalizedDist = (handDistance - 0.5) / 2.0;
-        
-        // Map to 0.4 - 1.0 Range
-        // Logic: MinVol + (normalizedDist * (MaxVol - MinVol))
-        let vol = 0.4 + (normalizedDist * 0.6);
-        
-        // Clamp strictly between 0.4 and 1.0
-        vol = Math.max(0.4, Math.min(1.0, vol));
-        
-        audioElement.volume = vol;
-
-        // Update UI
-        const volUI = document.getElementById('volume-status');
-        volUI.innerText = `Volume: ${Math.round(vol * 100)}%`;
-    }
-
-    // --- PREVIEW SYSTEM ---
-    class ShapePreview {
-        constructor(containerId, shapeGenerator, index) {
-            this.container = document.createElement('div');
-            this.container.className = 'shape-preview-container';
-            // Show letter for S-Shape
-            if(index === 1) this.container.innerText = "S"; 
-            
-            document.getElementById(containerId).appendChild(this.container);
-
-            this.canvas = document.createElement('canvas');
-            this.canvas.style.width = "100%";
-            this.canvas.style.height = "100%";
-            this.container.appendChild(this.canvas);
-
-            this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, alpha: true, antialias: true });
-            this.renderer.setSize(50, 50); 
-            
-            this.scene = new THREE.Scene();
-            this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
-            this.camera.position.z = 15;
-
-            const previewParticleCount = 1000; 
-            const positions = shapeGenerator(previewParticleCount);
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
-            const colors = new Float32Array(previewParticleCount * 3);
-            for(let i=0; i<previewParticleCount; i++) {
-                const i3 = i*3;
-                // Simple static color for preview
-                colors[i3] = 0.0; colors[i3+1] = 1.0; colors[i3+2] = 0.8; 
-            }
-            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-            const material = new THREE.PointsMaterial({
-                size: 0.4, vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.9
-            });
-
-            this.particles = new THREE.Points(geometry, material);
-            this.scene.add(this.particles);
-            this.render();
-        }
-
-        setActive(isActive) {
-            if (isActive) this.container.classList.add('active');
-            else this.container.classList.remove('active');
-        }
-
-        render() {
-            requestAnimationFrame(this.render.bind(this));
-            this.particles.rotation.y += 0.02;
-            this.renderer.render(this.scene, this.camera);
-        }
-    }
-
-    // --- THREE.JS MAIN ---
-    function initThree() {
-        scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x050505, 0.03);
-
-        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.z = 10;
-
-        renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.domElement.className = 'main-canvas';
-        document.body.appendChild(renderer.domElement);
-
-        // Load Shapes
-        shapes = [
-            getSphere(PARTICLE_COUNT),
-            getSShape(PARTICLE_COUNT), // S Added here
-            getHeart(PARTICLE_COUNT),
-            getSaturn(PARTICLE_COUNT),
-            getFlower(PARTICLE_COUNT),
-            getTorusKnot(PARTICLE_COUNT)
-        ];
-
-        // Init Particles with first shape
-        const initialPos = getSphere(PARTICLE_COUNT);
-        targetPositions = initialPos;
-
-        geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(initialPos, 3));
-        
-        const colors = new Float32Array(PARTICLE_COUNT * 3);
-        const colorAttribute = new THREE.BufferAttribute(colors, 3);
-        geometry.setAttribute('color', colorAttribute);
-
-        const material = new THREE.PointsMaterial({
-            size: PARTICLE_SIZE, vertexColors: true, blending: THREE.AdditiveBlending,
-            depthWrite: false, transparent: true, opacity: 0.8
-        });
-
-        particles = new THREE.Points(geometry, material);
-        scene.add(particles);
-        
-        // Init Previews
-        const shapeGenerators = [getSphere, getSShape, getHeart, getSaturn, getFlower, getTorusKnot];
-        shapeGenerators.forEach((gen, index) => {
-            const preview = new ShapePreview('shape-previews', gen, index);
-            shapePreviews.push(preview);
-        });
-        shapePreviews[currentShapeIndex].setActive(true);
-
-        window.addEventListener('resize', onWindowResize, false);           
-    }
-
-    function onWindowResize() {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    // --- ANIMATION LOOP ---
-    function animate() {
-        requestAnimationFrame(animate);
-
-        // Update Volume based on hands
-        updateVolume();
-
-        const positions = particles.geometry.attributes.position.array;
-        const currentTarget = shapes[currentShapeIndex];
-        const colors = particles.geometry.attributes.color.array;
-
-        // Scale Logic (Hand Distance)
-        const scaleTarget = Math.max(0.5, Math.min(3.0, handDistance * 3));
-        particles.scale.lerp(new THREE.Vector3(scaleTarget, scaleTarget, scaleTarget), 0.1);
-
-        // Rotation Logic
-        particles.rotation.x += (rotationTarget.y - particles.rotation.x) * 0.05;
-        particles.rotation.y += (rotationTarget.x - particles.rotation.y) * 0.05;
-        particles.rotation.z += 0.002;
-
-        const time = Date.now() * 0.001;
-        
-        for (let i = 0; i < PARTICLE_COUNT; i++) {
-            const i3 = i * 3;
-            // Lerp Position
-            positions[i3]     += (currentTarget[i3]     - positions[i3])     * MORPH_SPEED;
-            positions[i3 + 1] += (currentTarget[i3 + 1] - positions[i3 + 1]) * MORPH_SPEED;
-            positions[i3 + 2] += (currentTarget[i3 + 2] - positions[i3 + 2]) * MORPH_SPEED;
-
-            // Color Logic - Shape Specific Colors
-            let r, g, b;
-            if(currentShapeIndex === 0) { // Sphere (Cyan)
-                r = 0.1; g = 0.5 + Math.sin(time + positions[i3]*0.5)*0.5; b = 1.0;
-            } else if (currentShapeIndex === 1) { // S-Shape (Bright Pink/Purple)
-                r = 1.0; g = 0.0; b = 1.0;
-            } else if (currentShapeIndex === 2) { // Heart (Red)
-                r = 1.0; g = 0.1; b = 0.2 + Math.cos(positions[i3+1])*0.3;
-            } else if (currentShapeIndex === 3) { // Saturn (Gold)
-                r = 0.9; g = 0.7 + Math.sin(positions[i3]*10)*0.2; b = 0.2;
-            } else { // Others
-                 r = 0.5 + Math.sin(time + positions[i3])*0.5;
-                 g = 0.5 + Math.sin(time + positions[i3+1] + 2)*0.5;
-                 b = 0.5 + Math.sin(time + positions[i3+2] + 4)*0.5;
-            }
-            colors[i3] = r; colors[i3+1] = g; colors[i3+2] = b;
-        }
-
-        particles.geometry.attributes.position.needsUpdate = true;
-        particles.geometry.attributes.color.needsUpdate = true;
-        renderer.render(scene, camera);
-    }
-
-    // --- COMPUTER VISION ---
-    function onResults(results) {
-        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-            const hand1 = results.multiHandLandmarks[0];
-            const x = hand1[9].x;
-            const y = hand1[9].y;
-
-            rotationTarget.x = (x - 0.5) * 4; 
-            rotationTarget.y = (y - 0.5) * 4;
-
-            const thumbTip = hand1[4];
-            const indexTip = hand1[8];
-            const distance = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
-
-            if (distance < 0.05) {
-                if (!isPinching && !pinchCooldown) {
-                    isPinching = true;
-                    switchShape();
-                    pinchCooldown = true;
-                    setTimeout(() => { pinchCooldown = false; }, 1000);
-                }
-            } else {
-                isPinching = false;
-            }
-
-            if (results.multiHandLandmarks.length > 1) {
-                const hand2 = results.multiHandLandmarks[1];
-                const x1 = hand1[9].x; const x2 = hand2[9].x;
-                const y1 = hand1[9].y; const y2 = hand2[9].y;
-                const dist = Math.hypot(x2 - x1, y2 - y1);
-                handDistance = dist * 2.0;
-            }
-        }
-    }
-
-    function switchShape() {
-        shapePreviews[currentShapeIndex].setActive(false);
-        currentShapeIndex = (currentShapeIndex + 1) % shapes.length;
-        shapePreviews[currentShapeIndex].setActive(true);
-        // NOTE: Music continues playing, we do NOT reset it here.
-    }
-
-    const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-    hands.setOptions({
-        maxNumHands: 2,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-    });
-    hands.onResults(onResults);
-
-    const videoElement = document.getElementById('input_video');
-    const cameraUtils = new Camera(videoElement, {
-        onFrame: async () => { await hands.send({image: videoElement}); },
-        width: 1280,
-        height: 720
-    });
-
-    // Start Button Listener
-    document.getElementById('start-btn').addEventListener('click', initAudio);
-
-    initThree();
-    cameraUtils.start();
-    animate();
-
-</script>
-</body>
-</html> -->
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S-Shape & Perfect Mobile UI</title>
+    <title>S-Shape & Exact Holographic Rotation</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050505; font-family: sans-serif; touch-action: none; }
         
-        /* Main 3D Canvas */
         canvas.main-canvas { display: block; position: absolute; top: 0; left: 0; z-index: 1; }
 
-        /* Start Button */
         #start-btn {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             padding: 15px 30px; background: #00ffcc; color: black; font-weight: bold;
@@ -542,28 +18,25 @@
         }
         @keyframes pulse { 0% { transform: translate(-50%, -50%) scale(1); } 50% { transform: translate(-50%, -50%) scale(1.1); } 100% { transform: translate(-50%, -50%) scale(1); } }
 
-        /* Mobile Instruction Text */
         #mobile-instruction {
             position: absolute; top: 10%; left: 50%; transform: translateX(-50%);
-            color: #00ffcc; font-size: 16px; text-align: center; font-weight: bold; z-index: 50;
+            color: #00ffcc; font-size: 15px; text-align: center; font-weight: bold; z-index: 50;
             display: none; width: 90%; text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+            line-height: 1.5;
         }
 
-        /* UI Container */
         #ui {
             position: absolute; bottom: 30px; left: 50%; 
             transform: translateX(-50%);
             z-index: 10; pointer-events: none; text-align: center; width: 100%;
         }
 
-        /* Volume Indicator */
         #volume-status {
             position: absolute; top: 20px; left: 20px; 
             color: #00ffcc; font-size: 14px; border: 1px solid #00ffcc;
             padding: 5px 10px; border-radius: 5px; opacity: 0.8; transition: opacity 0.3s; z-index: 20;
         }
 
-        /* Shape Previews */
         #shape-previews {
             display: flex; gap: 15px; pointer-events: auto;
             background: rgba(0,0,0,0.3); padding: 10px; border-radius: 20px;
@@ -582,7 +55,6 @@
             box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
         }
 
-        /* Webcam (Laptop par dikhega) */
         #input_video {
             display: block !important; position: absolute; bottom: 20px; right: 20px;
             width: 300px; height: auto; border-radius: 12px;
@@ -590,25 +62,18 @@
             transform: scaleX(-1); box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0.9;
         }
 
-        /* ==================================================
-           📱 MOBILE RESPONSIVE CSS (Camera Hidden Here)
-           ================================================== */
         @media (max-width: 768px) {
             #start-btn { font-size: 14px; padding: 12px 20px; }
             #mobile-instruction { display: block; } 
             
-            /* MOBILE PAR CAMERA GAYAB (Invisible but working) */
             #input_video {
                 opacity: 0 !important; 
                 pointer-events: none !important;
-                width: 1px !important; 
-                height: 1px !important;
-                position: absolute;
-                top: -1000px; /* Screen se bahar nikal diya */
+                width: 1px !important; height: 1px !important;
+                position: absolute; top: -1000px; 
             }
 
             #volume-status { top: 20px; left: 10px; font-size: 12px; padding: 4px 8px; }
-
             #ui { bottom: 15px; } 
             #shape-previews { gap: 8px; padding: 6px; border-radius: 15px; }
             .shape-preview-container { width: 35px; height: 35px; font-size: 8px; }
@@ -623,7 +88,7 @@
 <body>
 
     <button id="start-btn">START MUSIC & MAGIC ✨</button>
-    <div id="mobile-instruction">Raise Hand 🤚 = Volume Up!<br>Pinch 🤏 = Change Shape</div>
+    <div id="mobile-instruction">🖐️ Open Hand = Zoom In & Louder!<br>✊ Close Fist = Shrink & Quieter!<br>🔄 Twist Hand = Rotate Shape</div>
     
     <div id="volume-status">Volume: 40%</div>
 
@@ -636,13 +101,11 @@
     <video id="input_video" autoplay playsinline></video>
 
 <script>
-    // --- PERFORMANCE OPTIMIZATION FOR MOBILE ---
     const isMobile = window.innerWidth < 768;
     const PARTICLE_COUNT = isMobile ? 8000 : 15000; 
     const PARTICLE_SIZE = isMobile ? 0.1 : 0.08; 
     const MORPH_SPEED = 0.08;
 
-    // --- GLOBALS ---
     let scene, camera, renderer, particles, geometry;
     let targetPositions = []; 
     let currentShapeIndex = 0;
@@ -651,13 +114,13 @@
     let shapes = []; 
     let shapePreviews = []; 
 
-    // Interaction State
     let isPinching = false;
     let pinchCooldown = false;
-    let handDistance = 1; // Used for both 1-hand height and 2-hand distance
-    let rotationTarget = { x: 0, y: 0 };
+    let handDistance = 1; 
     
-    // Audio State
+    // NEW: Target for 3D Exact Rotation
+    let rotationTarget = { x: 0, y: 0, z: 0 }; 
+    
     let audioElement;
     let isAudioPlaying = false;
 
@@ -744,11 +207,10 @@
         audioElement.play().then(() => {
             isAudioPlaying = true;
             document.getElementById('start-btn').style.display = 'none';
-            // Hide instruction after 5 seconds
             setTimeout(() => {
                 document.getElementById('mobile-instruction').style.opacity = '0';
                 setTimeout(() => document.getElementById('mobile-instruction').style.display = 'none', 500);
-            }, 5000);
+            }, 6000);
         }).catch(err => {
             console.log("Audio play failed:", err);
             alert("Please tap the screen to play audio.");
@@ -878,7 +340,7 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // --- ANIMATION LOOP ---
+    // --- EXACT ROTATION ANIMATION LOOP ---
     function animate() {
         requestAnimationFrame(animate);
         updateVolume();
@@ -887,12 +349,20 @@
         const currentTarget = shapes[currentShapeIndex];
         const colors = particles.geometry.attributes.color.array;
 
+        // Smooth Scale
         const scaleTarget = Math.max(0.5, Math.min(3.0, handDistance * 3));
         particles.scale.lerp(new THREE.Vector3(scaleTarget, scaleTarget, scaleTarget), 0.1);
 
-        particles.rotation.x += (rotationTarget.y - particles.rotation.x) * 0.05;
-        particles.rotation.y += (rotationTarget.x - particles.rotation.y) * 0.05;
-        particles.rotation.z += 0.002;
+        // --- PRECISE EXACT ROTATION LOGIC ---
+        // Smoothly follow the Hand's exact X and Y rotation
+        particles.rotation.x += (rotationTarget.x - particles.rotation.x) * 0.1;
+        particles.rotation.y += (rotationTarget.y - particles.rotation.y) * 0.1;
+
+        // Smoothly follow Z rotation (with wrap-around fix to stop wild spinning)
+        let diffZ = rotationTarget.z - particles.rotation.z;
+        while (diffZ < -Math.PI) diffZ += Math.PI * 2;
+        while (diffZ > Math.PI) diffZ -= Math.PI * 2;
+        particles.rotation.z += diffZ * 0.1;
 
         const time = Date.now() * 0.001;
         
@@ -924,18 +394,34 @@
         renderer.render(scene, camera);
     }
 
-    // --- COMPUTER VISION (HYBRID LOGIC) ---
+    // --- EXACT HOLOGRAPHIC HAND TRACKING ---
     function onResults(results) {
         if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-            const hand1 = results.multiHandLandmarks[0];
-            const x = hand1[9].x;
-            const y = hand1[9].y;
+            const hand = results.multiHandLandmarks[0];
+            
+            // Landmarks needed for 3D rotation
+            const wrist = hand[0];
+            const indexMCP = hand[5];
+            const middleMCP = hand[9];
+            const pinkyMCP = hand[17];
 
-            rotationTarget.x = (x - 0.5) * 4; 
-            rotationTarget.y = (y - 0.5) * 4;
+            // 1. Z-Rotation (Twist/Roll like a steering wheel)
+            // Calculate angle between wrist and middle finger
+            let handAngle = Math.atan2(middleMCP.y - wrist.y, middleMCP.x - wrist.x);
+            // Adjust so hand pointing straight UP is 0 rotation
+            rotationTarget.z = -(handAngle + Math.PI / 2);
 
-            const thumbTip = hand1[4];
-            const indexTip = hand1[8];
+            // 2. Y-Rotation (Yaw - Pointing hand Left or Right)
+            // Uses Z-depth difference between Pinky and Index knuckles
+            rotationTarget.y = (indexMCP.z - pinkyMCP.z) * 12.0; 
+
+            // 3. X-Rotation (Pitch - Tilting hand Forward or Backward)
+            // Uses Z-depth difference between Wrist and Middle knuckle
+            rotationTarget.x = (middleMCP.z - wrist.z) * 12.0;
+
+            // --- Pinch Logic (Change Shape) ---
+            const thumbTip = hand[4];
+            const indexTip = hand[8];
             const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
 
             if (pinchDist < 0.05) {
@@ -949,15 +435,24 @@
                 isPinching = false;
             }
 
+            // --- VOLUME & SCALE LOGIC (Fist vs Open Hand) ---
             if (results.multiHandLandmarks.length > 1) {
+                // Laptop: Distance between 2 hands
                 const hand2 = results.multiHandLandmarks[1];
-                const x1 = hand1[9].x; const x2 = hand2[9].x;
-                const y1 = hand1[9].y; const y2 = hand2[9].y;
-                const dist = Math.hypot(x2 - x1, y2 - y1);
-                handDistance = dist * 2.0;
+                handDistance = Math.hypot(hand2[9].x - hand[9].x, hand2[9].y - hand[9].y) * 2.0;
             } else {
-                let heightFactor = 1.0 - y; 
-                handDistance = 0.5 + (heightFactor * 2.0);
+                // Mobile: Spread of fingers (Fist = Small, Spread = Big)
+                let spreadSum = 0;
+                const tips = [4, 8, 12, 16, 20]; 
+                for(let i=0; i<tips.length; i++) {
+                    spreadSum += Math.hypot(hand[tips[i]].x - wrist.x, hand[tips[i]].y - wrist.y);
+                }
+                let avgSpread = spreadSum / 5.0; 
+                
+                let normalizedSpread = (avgSpread - 0.15) / 0.3;
+                normalizedSpread = Math.max(0.0, Math.min(1.0, normalizedSpread)); 
+                
+                handDistance = 0.5 + (normalizedSpread * 2.0);
             }
         }
     }
