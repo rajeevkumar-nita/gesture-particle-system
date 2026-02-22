@@ -525,7 +525,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>S-Shape & 1-Hand Mobile Control</title>
+    <title>S-Shape & Perfect Mobile UI</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050505; font-family: sans-serif; touch-action: none; }
         
@@ -582,7 +582,7 @@
             box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
         }
 
-        /* Webcam */
+        /* Webcam (Laptop par dikhega) */
         #input_video {
             display: block !important; position: absolute; bottom: 20px; right: 20px;
             width: 300px; height: auto; border-radius: 12px;
@@ -590,15 +590,21 @@
             transform: scaleX(-1); box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0.9;
         }
 
-        /* 📱 MOBILE RESPONSIVE CSS */
+        /* ==================================================
+           📱 MOBILE RESPONSIVE CSS (Camera Hidden Here)
+           ================================================== */
         @media (max-width: 768px) {
             #start-btn { font-size: 14px; padding: 12px 20px; }
-            #mobile-instruction { display: block; } /* Show instruction on mobile */
+            #mobile-instruction { display: block; } 
             
+            /* MOBILE PAR CAMERA GAYAB (Invisible but working) */
             #input_video {
-                width: 100px; 
-                top: 20px; right: 10px; bottom: auto; 
-                border-width: 1px;
+                opacity: 0 !important; 
+                pointer-events: none !important;
+                width: 1px !important; 
+                height: 1px !important;
+                position: absolute;
+                top: -1000px; /* Screen se bahar nikal diya */
             }
 
             #volume-status { top: 20px; left: 10px; font-size: 12px; padding: 4px 8px; }
@@ -752,7 +758,6 @@
     function updateVolume() {
         if (!isAudioPlaying || !audioElement) return;
         
-        // Map handDistance (0.5 to 2.5) to Volume (0.4 to 1.0)
         let normalizedDist = (handDistance - 0.5) / 2.0;
         let vol = 0.4 + (normalizedDist * 0.6);
         vol = Math.max(0.4, Math.min(1.0, vol));
@@ -919,18 +924,16 @@
         renderer.render(scene, camera);
     }
 
-    // --- COMPUTER VISION (HYBRID 1-HAND & 2-HAND LOGIC) ---
+    // --- COMPUTER VISION (HYBRID LOGIC) ---
     function onResults(results) {
         if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
             const hand1 = results.multiHandLandmarks[0];
             const x = hand1[9].x;
             const y = hand1[9].y;
 
-            // Rotation mapped to hand position
             rotationTarget.x = (x - 0.5) * 4; 
             rotationTarget.y = (y - 0.5) * 4;
 
-            // Pinch Logic
             const thumbTip = hand1[4];
             const indexTip = hand1[8];
             const pinchDist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
@@ -946,21 +949,14 @@
                 isPinching = false;
             }
 
-            // VOLUME & SCALE LOGIC (Hybrid)
             if (results.multiHandLandmarks.length > 1) {
-                // 2-Hand Mode: Use horizontal distance between hands
                 const hand2 = results.multiHandLandmarks[1];
                 const x1 = hand1[9].x; const x2 = hand2[9].x;
                 const y1 = hand1[9].y; const y2 = hand2[9].y;
                 const dist = Math.hypot(x2 - x1, y2 - y1);
                 handDistance = dist * 2.0;
             } else {
-                // 1-Hand Mode (Mobile Friendly): Use vertical height of the hand
-                // In MediaPipe, y=0 is top of screen, y=1 is bottom
-                // We want: High Hand (y=0) -> Max Volume/Size. Low Hand (y=1) -> Min Volume/Size
-                let heightFactor = 1.0 - y; // Maps 0-1
-                
-                // Map this height to the expected handDistance range (0.5 to 2.5)
+                let heightFactor = 1.0 - y; 
                 handDistance = 0.5 + (heightFactor * 2.0);
             }
         }
@@ -986,7 +982,7 @@
         onFrame: async () => { await hands.send({image: videoElement}); },
         width: 1280,
         height: 720,
-        facingMode: 'user' // Front camera for mobile
+        facingMode: 'user' 
     });
 
     document.getElementById('start-btn').addEventListener('click', initAudio);
